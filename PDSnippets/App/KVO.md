@@ -7,7 +7,7 @@ KVO (Key-Value Observing) 是Cocoa提供的一种基于KVC的机制，允许一�
 添加方法：
 
 ```
-- (void)addObserver:(NSObject *)observer forKeyPath:(NSString *)keyPath options:(NSKeyValueObservingOptions)options context:(nullable void *)context;
+- (void)addObserver:(NSObject *)observer forKeyPath:(NSString *)keyPath options:(NSKeyValueObservingOptions)opions context:(nullable void *)context;
 ```
 
 接受方法：
@@ -24,7 +24,7 @@ KVO (Key-Value Observing) 是Cocoa提供的一种基于KVC的机制，允许一�
 - (void)removeObserver:(NSObject *)observer forKeyPath:(NSString *)keyPath;
 ```
 
-本文相关 [Demo]()
+本文相关 [Demo](https://github.com/v2panda/PDPractice/tree/master/Demo_KVO)
 
 ### 自动 KVO
 调用上面三个方法实现即自动 KVO，不细说。
@@ -152,12 +152,119 @@ KVO (Key-Value Observing) 是Cocoa提供的一种基于KVC的机制，允许一�
 
 >You should never rely on the isa pointer to determine class membership. Instead, you should use the class method to determine the class of an object instance.
 
-可见苹果是实现了一种叫**isa-swizzling**的机制。
+可见苹果是实现了一种叫 **isa-swizzling** 的机制，那么具体怎么做呢，大概有这么几步：
 
-其实，当某个类的对象第一次被观察时，系统就会在运行期动态地创建该类的一个派生类（类名就是在该类的前面加上NSKVONotifying_ 前缀），在这个派生类中重写基类中任何被观察属性的 setter 方法。
+- 1.在运行期动态地创建被观察类的派生类（类名就是在该类的前面加上NSKVONotifying_ 前缀）
 
-派生类在被重写的 setter 方法实现真正的通知机制，就如前面手动实现键值观察那样，调用willChangeValueForKey:和didChangeValueForKey:方法。这么做是基于设置属性会调用 setter 方法，而通过重写就获得了 KVO 需要的通知机制。当然前提是要通过遵循 KVO 的属性设置方式来变更属性值，如果仅是直接修改属性对应的成员变量，是无法实现 KVO 的。
+- 2.在这个派生类中重写基类中被观察属性的 setter 方法
 
-同时派生类还重写了 class 方法以“欺骗”外部调用者它就是起初的那个类。然后系统将这个对象的 isa 指针指向这个新诞生的派生类，因此这个对象就成为该派生类的对象了，因而在该对象上对 setter 的调用就会调用重写的 setter，从而激活键值通知机制。此外，派生类还重写了 dealloc 方法来释放资源。
+- 3.将 isa 指向这个新建的派生类(欺骗外部调用者它就是起初的那个类)
+
+注意这里是在派生类里被重写的 setter 方法里实现真正的通知机制，在对象上对 setter 的调用就会调用重写的 setter，从而激活 KVO。
 
 ### 自实现 KVO
+根据上面的原理，来自实现一个 KVO 机制，首先创建一个 `NSObject` 的分类:
+
+```
+#import <Foundation/Foundation.h>
+
+typedef void(^PDObservingBlock)(id observedObject, NSString *observedKey, id oldValue, id newValue);
+
+@interface NSObject (PDKVO)
+
+- (void)pd_addObserver:(NSObject *)observer
+                forKey:(NSString *)key
+             withBlock:(PDObservingBlock)block;
+
+- (void)pd_removeObserver:(NSObject *)observer forKey:(NSString *)key;
+
+@end
+```
+
+#### ObservationInfo
+添加对 block 的支持，block info 如下：
+```
+@interface PDObservationInfo : NSObject
+
+@property (nonatomic, weak) NSObject *observer;
+@property (nonatomic, copy) NSString *key;
+@property (nonatomic, copy) PDObservingBlock block;
+
+@end
+
+@implementation PDObservationInfo
+
+- (instancetype)initWithObserver:(NSObject *)observer
+                             Key:(NSString *)key
+                           block:(PDObservingBlock)block {
+    self = [super init];
+    if (self) {
+        _observer = observer;
+        _key = key;
+        _block = block;
+    }
+    return self;
+}
+@end
+```
+
+#### addObserver
+在 `addObserver` 方法里首先得检查对象是否存在该属性的setter方法，若没有则抛出异常：
+```
+SEL setterSelector = NSSelectorFromString(setterForGetter(key));
+Method setterMethod = class_getInstanceMethod([self class], setterSelector);
+if (!setterMethod) {
+    NSString *reason = [NSString stringWithFormat:@"Object %@ does not have a setter for key %@", self, key];
+    @throw [NSException exceptionWithName:NSInvalidArgumentException
+                                   reason:reason
+                                 userInfo:nil];
+    return;
+}
+```
+
+然后检查自身(类)是否是 KVO 类，如果不是，新建一个继承原来类的子类，并把 isa 指向这个新建的子类：
+
+```
+Class clazz = object_getClass(self);
+NSString *clazzName = NSStringFromClass(clazz);
+if (![clazzName hasPrefix:kPDKVOClassPrefix]) {
+    clazz = [self createKvoClassWithOriginalClassName:clazzName];
+    // 改变 isa 指向刚创建的 clazz 类
+    object_setClass(self, clazz);
+}
+```
+
+再添加重写的 setter 方法，并将 block 信息加到数组中：
+
+```
+if (![self hasSelector:setterSelector]) {
+    const char *types = method_getTypeEncoding(setterMethod);
+    class_addMethod(clazz, setterSelector, (IMP)kvo_setter, types);
+}
+
+// 创建观察者的信息
+PDObservationInfo *info = [[PDObservationInfo alloc] initWithObserver:observer Key:key block:block];
+
+@synchronized (self) {
+    NSMutableArray *observers = objc_getAssociatedObject(self, (__bridge const void *)(kPDKVOAssociatedObservers));
+    if (!observers) {
+        observers = [NSMutableArray array];
+        objc_setAssociatedObject(self, (__bridge const void *)(kPDKVOAssociatedObservers), observers, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    }
+    [observers addObject:info];
+}
+```
+
+#### 调用
+一句代码就搞定，不用再到 `- (void)observeValueForKeyPath:(NSString *)keyPath ofObject:(id)object change:(NSDictionary *)change context:(void *)context` 方法里去嵌套 `if else`
+
+```
+[self.message pd_addObserver:self forKey:@"info" withBlock:^(id observedObject, NSString *observedKey, id oldValue, id newValue) {
+        self.label.text = newValue;
+}];
+```
+
+具体实现可见 [Demo](https://github.com/v2panda/PDPractice/tree/master/Demo_KVO) 的 `NSObject+PDKVO` 类。
+
+### Reference
+[如何自己动手实现 KVO](http://tech.glowing.com/cn/implement-kvo/)
