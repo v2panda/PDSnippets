@@ -10,7 +10,7 @@ KVO (Key-Value Observing) 是Cocoa提供的一种基于KVC的机制，允许一�
 - (void)addObserver:(NSObject *)observer forKeyPath:(NSString *)keyPath options:(NSKeyValueObservingOptions)opions context:(nullable void *)context;
 ```
 
-接受方法：
+接收方法：
 
 ```
 - (void)observeValueForKeyPath:(nullable NSString *)keyPath ofObject:(nullable id)object change:(nullable NSDictionary<NSKeyValueChangeKey, id> *)change context:(nullable void *)context;
