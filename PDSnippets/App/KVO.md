@@ -245,7 +245,7 @@ if (![self hasSelector:setterSelector]) {
 // 创建观察者的信息
 PDObservationInfo *info = [[PDObservationInfo alloc] initWithObserver:observer Key:key block:block];
 
-@synchronized (self) {
+@synchronized (info) {
     NSMutableArray *observers = objc_getAssociatedObject(self, (__bridge const void *)(kPDKVOAssociatedObservers));
     if (!observers) {
         observers = [NSMutableArray array];
@@ -254,6 +254,28 @@ PDObservationInfo *info = [[PDObservationInfo alloc] initWithObserver:observer K
     [observers addObject:info];
 }
 ```
+
+需要注意的是这里 `@synchronized()` 传入的是 info 而不是 self，这是因为 synchronized 中传入的 object 的内存地址，被用作 key，通过hash map对应的一个系统维护的递归锁。所以不管是传入什么类型的object，只要是有内存地址，就能启动同步代码块的效果。因此避免传入 self，以免导致死锁，例如：
+
+```
+//class A
+@synchronized (self) {
+    [_sharedLock lock];
+    NSLog(@"code in class A");
+    [_sharedLock unlock];
+}
+
+//class B
+[_sharedLock lock];
+@synchronized (objectA) {
+    NSLog(@"code in class B");
+}
+[_sharedLock unlock];
+```
+
+原因是因为self很可能会被外部对象访问，被用作key来生成一锁，类似上述代码中的@synchronized (objectA)。两个公共锁交替使用的场景就容易出现死锁。
+
+所以正确的做法是传入一个类内部维护的NSObject对象，而且这个对象是对外不可见的。
 
 #### 调用
 一句代码就搞定，不用再到 `- (void)observeValueForKeyPath:(NSString *)keyPath ofObject:(id)object change:(NSDictionary *)change context:(void *)context` 方法里去嵌套 `if else`
