@@ -10,11 +10,76 @@ KVO (Key-Value Observing) 是Cocoa提供的一种基于KVC的机制，允许一�
 - (void)addObserver:(NSObject *)observer forKeyPath:(NSString *)keyPath options:(NSKeyValueObservingOptions)opions context:(nullable void *)context;
 ```
 
+参数：
+
+- observer：就是要添加的监听者对象，，当监听的属性发生改变时就会去通知该对象，该对象必须实现- observeValueForKeyPath:ofObject:change:context:方法，要不然当监听的属性的改变通知发出来，却发现没有相应的接收方法时，程序会抛出异常。
+
+- keyPath：就是要被监听的属性，这里和KVC的规则一样。但是这个值不能传nil，要不然会报错。通常我们在用的时候会传一个与属性同名的字符串，但是这样可能会因为拼写错误，导致监听不成功，一个推荐的做法是，用这种方式NSStringFromSelector(@selector(propertyName))，其实就是是将属性的getter方法转换成了字符串，这样做的好处就是，如果你写错了属性名，xcode会用警告提醒你。
+
+- options：是一些配置选项，用来指明通知发出的时机和通知响应方法- observeValueForKeyPath:ofObject:change:context:的change字典中包含哪些值，它的取值有4个，定义在NSKeyValueObservingOptions中，可以用|符号连接，如下：
+ - 1> NSKeyValueObservingOptionNew：指明接受通知方法参数中的change字典中应该包含改变后的新值。
+
+ - 2>NSKeyValueObservingOptionOld: 指明接受通知方法参数中的change字典中应该包含改变前的旧值。
+
+ - 3>NSKeyValueObservingOptionInitial: 当指定了这个选项时，在addObserver:forKeyPath:options:context:消息被发出去后，甚至不用等待这个消息返回，监听者对象会马上收到一个通知。这种通知只会发送一次，你可以利用这种“一次性“的通知来确定要监听属性的初始值。当同时制定这3个选项时，这种通知的change字典中只会包含新值，而不会包含旧值。虽然这时候的新值实际上是改变前的'旧值'，但是这个值对于监听者来说是新的。
+
+ - 4>NSKeyValueObservingOptionPrior：当指定了这个选项时，在被监听的属性被改变前，监听者对象就会收到一个通知（一般的通知发出时机都是在属性改变后，虽然change字典中包含了新值和旧值，但是通知还是在属性改变后才发出），这个通知会包含一个NSKeyValueChangeNotificationIsPriorKeykey，其对应的值为一个NSNumber类型的YES。当同时指定该值、new和old的话，change字典会包含旧值而不会包含新值。你可以在这个通知中调用- (void)willChangeValueForKey:(NSString *)key;
+
+- context：添加监听方法的最后一个参数，是一个可选的参数，可以传任何数据，这个参数最后会被传到监听者的响应方法中，可以用来区分不同通知，也可以用来传值。如果你要用context来区分不同的通知，一个推荐的做法是声明一个静态变量，其保持它自己的地址，这个变量没有什么意义，但是却能起到区分的作用。
+
 接收方法：
 
 ```
 - (void)observeValueForKeyPath:(nullable NSString *)keyPath ofObject:(nullable id)object change:(nullable NSDictionary<NSKeyValueChangeKey, id> *)change context:(nullable void *)context;
 ```
+
+keyPath，object，context和监听方法中指定的一样，关于change参数，它是一个字典，有五个常量作为它的键：
+
+```
+NSString *const NSKeyValueChangeKindKey;  
+NSString *const NSKeyValueChangeNewKey;  
+NSString *const NSKeyValueChangeOldKey;  
+NSString *const NSKeyValueChangeIndexesKey;  
+NSString *const NSKeyValueChangeNotificationIsPriorKey;
+```
+
+一个一个分析下：
+
+- NSKeyValueChangeKindKey：指明了变更的类型，值为“NSKeyValueChange”枚举中的某一个，类型为NSNumber。
+
+	```
+enum {
+ NSKeyValueChangeSetting = 1,
+ NSKeyValueChangeInsertion = 2,
+ NSKeyValueChangeRemoval = 3,
+ NSKeyValueChangeReplacement = 4
+ typedef NSUInteger NSKeyValueChange;
+};
+	```
+一般情况下返回的都是1也就是第一个NSKeyValueChangeSetting，但是如果你监听的属性是一个集合对象的话，当这个集合中的元素被插入，删除，替换时，就会分别返回NSKeyValueChangeInsertion，NSKeyValueChangeRemoval和NSKeyValueChangeReplacement。
+
+- NSKeyValueChangeNewKey：被监听属性改变后新值的key，当监听属性为一个集合对象，且NSKeyValueChangeKindKey不为NSKeyValueChangeSetting时，该值返回的是一个数组，包含插入，替换后的新值（删除操作不会返回新值）。
+
+- NSKeyValueChangeOldKey：被监听属性改变前旧值的key，当监听属性为一个集合对象，且NSKeyValueChangeKindKey不为NSKeyValueChangeSetting时，该值返回的是一个数组，包含删除，替换前的旧值（插入操作不会返回旧值）
+
+- NSKeyValueChangeIndexesKey：如果NSKeyValueChangeKindKey的值为NSKeyValueChangeInsertion, NSKeyValueChangeRemoval, 或者 NSKeyValueChangeReplacement，这个键的值是一个NSIndexSet对象，包含了增加，移除或者替换对象的index。
+
+- NSKeyValueChangeNotificationIsPriorKey：如果注册监听者是options中指明了NSKeyValueObservingOptionPrior，change字典中就会带有这个key，值为NSNumber类型的YES.
+
+最后，完整的change字典大概就类似这样：
+
+```
+    NSDictionary *change = @{
+                             NSKeyValueChangeKindKey : NSKeyValueChange(枚举值),
+                             NSKeyValueChangeNewKey : newValue,
+                             NSKeyValueChangeOldKey : oldValue,
+                             NSKeyValueChangeIndexesKey : @[NSIndexSet, NSIndexSet],
+                             NSKeyValueChangeNotificationIsPriorKey : @1,
+                             };
+```
+
+
+
 
 移除方法：
 
@@ -290,3 +355,5 @@ PDObservationInfo *info = [[PDObservationInfo alloc] initWithObserver:observer K
 
 ### Reference
 [如何自己动手实现 KVO](http://tech.glowing.com/cn/implement-kvo/)
+
+
