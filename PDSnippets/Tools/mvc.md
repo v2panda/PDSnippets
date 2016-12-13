@@ -25,6 +25,15 @@ Git Commit message
 
 OC 编码规范
 
+## 分层
+主要分为5层，由下至上分为:
+
+网络层：负责和服务器通讯获取数据。
+数据层：存储用户的数据，包括内存cache。
+业务层：包含各种业务逻辑。
+UI数据层：负责提供UI层所需要的数据，UI只和这层打交道。
+UI层：包括ViewController和View，处理用户的输入。
+
 ## AutoLayout + Xib/Storyboard
 老项目是纯 Frame 布局，代码里有一大堆 Magic Number，一大堆屏幕尺寸判断，而这些造成了项目里有过多的布局代码，对于刚上手项目的人来说也不太容易看懂。所以这次重构整体采用 AutoLayout 布局，摒弃老项目里的纯 Frame 布局方式，精简代码。
 
@@ -52,7 +61,7 @@ OC 编码规范
 ## TODO
 URLRoute
 
-模块化
+组件化
 
 TestCase
 
