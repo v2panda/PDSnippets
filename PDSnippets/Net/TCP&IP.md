@@ -156,7 +156,8 @@ HTTP 是一种无状态的连接，客户端每次读取 web 页面时，服务�
 当服务器接收到 cookie 后，会根据 cookie 中的 SessionID 来找到这个客户的 session。如果没有，则会生成一个新的 SessionID 发送给客户端。
 
 
-### HTTPS
+### [HTTPS](http://blog.jobbole.com/110354/)
+
 HTTPS = HTTP + SSL
 
 HTTP 和 HTTPS 的不同之处
