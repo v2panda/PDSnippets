@@ -14,6 +14,7 @@
 
 2. RCTEventEmitter
 > 类似于iOS中的通知NSNotificationCenter
+
 	1. iOS 端 RCTEventEmitter —> sendEventWithName
 	2. RN 端 NativeEventEmitter —> addListener
 
